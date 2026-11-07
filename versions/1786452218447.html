@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Tuinplan Editor",
+  "schemaVersion": 1,
+  "description": "Tuinplan-editor op schaal: achtergrond (QGIS-export of luchtfoto) ijken op een bekende afstand, vlakken en vloeiende curves tekenen, vullen met bestratings- en beplantingspatronen of een eigen foto, maatlijnen zetten, live oppervlaktes en plantaantallen, en exporteren naar SVG op ware schaal voor Illustrator.",
+  "mcpTools": [],
+  "mcpServerNames": []
+}
+</script>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tuinplan-editor — op schaal</title>
+<style>
+:root{
+  --bg:#f6f5f3; --panel:#fff; --ink:#1f2421; --muted:#6f756f; --line:#e0ded9;
+  --accent:#4a6b52; --accent2:#b4713a; --sel:#2f7de1;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);overflow:hidden;
+  font:13.5px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+#app{display:grid;grid-template-columns:186px 1fr 292px;grid-template-rows:1fr 26px;height:100%}
+.col{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:10px}
+#right{border-right:none;border-left:1px solid var(--line)}
+#stage{position:relative;overflow:hidden;background:#eceae6}
+#svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+#status{grid-column:1/-1;background:#33383a;color:#dfe3e0;font-size:11.5px;
+  display:flex;align-items:center;gap:18px;padding:0 12px;font-variant-numeric:tabular-nums}
+h3{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  margin:14px 0 7px;font-weight:700}
+h3:first-child{margin-top:2px}
+button,select,input{font:inherit}
+.tool{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;margin-bottom:3px;
+  border:1px solid transparent;border-radius:7px;background:none;cursor:pointer;text-align:left;color:var(--ink)}
+.tool:hover{background:#f0efec}
+.tool.on{background:var(--accent);color:#fff}
+.tool kbd{margin-left:auto;font:11px ui-monospace,monospace;opacity:.6}
+.tool.on kbd{opacity:.85}
+.btn{width:100%;padding:6px 9px;margin-bottom:5px;border:1px solid var(--line);border-radius:7px;
+  background:#fff;cursor:pointer;text-align:left;color:var(--ink)}
+.btn:hover{border-color:#bfbcb5;background:#faf9f7}
+.btn.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.warn{color:var(--accent2)}
+.row{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.row label{flex:1;color:var(--muted);font-size:12.5px}
+.row input[type=number],.row input[type=text],.row select{width:82px;padding:3px 6px;border:1px solid var(--line);
+  border-radius:5px;text-align:right;background:#fff;color:var(--ink)}
+.row input[type=text]{text-align:left;width:110px}
+.row select{text-align:left;width:118px}
+.row input[type=range]{width:96px;accent-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent)}
+.swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:8px}
+.sw{aspect-ratio:1;border:1.5px solid var(--line);border-radius:6px;cursor:pointer;overflow:hidden;padding:0;background:#fff}
+.sw.on{border-color:var(--sel);box-shadow:0 0 0 2px rgba(47,125,225,.2)}
+.sw svg{width:100%;height:100%;display:block}
+#layers{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:8px}
+.lay{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line);
+  cursor:pointer;font-size:12.5px}
+.lay:last-child{border-bottom:none}
+.lay:hover{background:#f6f5f3}
+.lay.on{background:#e8f0e9}
+.lay .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lay .ar{color:var(--muted);font-variant-numeric:tabular-nums;font-size:11.5px}
+.lay .dot{width:11px;height:11px;border-radius:3px;border:1px solid #0002;flex:none}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+td{padding:3px 2px;border-bottom:1px solid var(--line)}
+td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+tfoot td{font-weight:700;border-top:1.5px solid var(--ink);border-bottom:none}
+.hint{font-size:11.5px;color:var(--muted);line-height:1.45;margin:6px 0 0}
+.tag{display:inline-block;background:#eef2ee;color:var(--accent);border-radius:20px;padding:1px 7px;font-size:11px;font-weight:600}
+#drop{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(74,107,82,.12);border:3px dashed var(--accent);font-weight:600;color:var(--accent);z-index:5}
+#drop.on{display:flex}
+#modal,#modal2{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(31,36,33,.45);z-index:50}
+#modal.on,#modal2.on{display:flex}
+#modal2 .box{background:#fff;border-radius:14px;padding:20px 22px;width:340px;
+  box-shadow:0 18px 50px rgba(0,0,0,.25)}
+#modal2 h4{margin:0 0 4px;font-size:16px}
+#modal2 p{margin:0 0 14px;color:var(--muted);font-size:12.5px}
+#modal2 .row input[type=number]{width:100px}
+#modal2 .row select{width:150px}
+#modal2 .acts{display:flex;gap:8px;margin-top:14px}
+#modal2 .acts .btn{margin:0}
+#modal .box{background:#fff;border-radius:14px;padding:20px 22px;width:340px;
+  box-shadow:0 18px 50px rgba(0,0,0,.25)}
+#modal h4{margin:0 0 4px;font-size:16px}
+#modal p{margin:0 0 14px;color:var(--muted);font-size:12.5px}
+#modal .row input[type=number]{width:100px}
+#modal .row select{width:150px}
+#modal .acts{display:flex;gap:8px;margin-top:14px}
+#modal .acts .btn{margin:0}
+.big-in{font-size:17px!important;font-weight:600}
+/* vast onderaan het canvas — niet zwevend bij de cursor, anders vangt het je klikken op */
+#numin{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;
+  display:none;gap:7px;align-items:center;background:#fff;
+  border:1px solid var(--sel);border-radius:10px;padding:7px 11px;z-index:8;
+  box-shadow:0 8px 26px rgba(0,0,0,.18);font-size:12.5px;pointer-events:none}
+#numin.on{display:flex}
+#numin>*{pointer-events:auto}
+#numin label{color:var(--muted);font-weight:600}
+#numin input{width:66px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;
+  text-align:right;font:inherit;font-size:14px;font-weight:600}
+#numin .k{background:#eef2ee;color:var(--accent);border-radius:5px;padding:2px 6px;font-size:11px;font-weight:700}
+#numin button{border:none;border-radius:7px;padding:5px 10px;cursor:pointer;font:inherit;font-weight:700;font-size:12.5px}
+#numin .done{background:var(--accent);color:#fff}
+#numin .done:hover{background:#3d5a44}
+#numin .cancel{background:#f0efec;color:var(--accent2)}
+#numin #niInfo{color:var(--muted);font-size:11.5px;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ================= LINKS ================= -->
+<div class="col" id="left">
+  <h3>Gereedschap</h3>
+  <button class="tool on" data-tool="select">Selecteren<kbd>V</kbd></button>
+  <button class="tool" data-tool="poly">Vlak / polygoon<kbd>P</kbd></button>
+  <button class="tool" data-tool="line">Lijn<kbd>L</kbd></button>
+  <button class="tool" data-tool="rect">Rechthoek<kbd>R</kbd></button>
+  <button class="tool" data-tool="circle">Cirkel / plant<kbd>C</kbd></button>
+  <button class="tool" data-tool="tree">Boom plaatsen<kbd>B</kbd></button>
+  <button class="tool" data-tool="path">Kronkelpad<kbd>W</kbd></button>
+  <button class="tool" data-tool="dim">Maatlijn<kbd>M</kbd></button>
+  <button class="tool" data-tool="calib">Schaal ijken<kbd>K</kbd></button>
+  <button class="btn" id="fitBtn" style="margin-top:6px">Passend in beeld<span style="float:right;opacity:.5">F</span></button>
+  <p class="hint"><b>Maten intypen.</b> Klik met <b>R</b> of <b>C</b> zonder te slepen → je krijgt een venster
+     voor breedte × hoogte of diameter. Tijdens het tekenen van een vlak of pad verschijnt een veldje voor
+     <b>lengte</b> en <b>hoek</b>: typ een getal en druk Enter voor een exact segment.
+     0° is naar rechts, 90° omhoog, −90° omlaag.</p>
+  <p class="hint"><b>Lijn afsluiten</b> kan op vier manieren: de groene <b>✓ Klaar</b>-knop, <b>Enter</b> met een
+     leeg lengteveld, <b>dubbelklik</b>, of de <b>rechtermuisknop</b>. Bij een gesloten vlak kun je ook op het
+     eerste punt klikken. <b>Esc</b> gooit de lijn weg.</p>
+
+  <h3>Achtergrond</h3>
+  <button class="btn" id="loadBg">Afbeelding laden…</button>
+  <div class="row"><label>Zichtbaar</label><input type="checkbox" id="bgOn" checked></div>
+  <div class="row"><label>Dekking</label><input type="range" id="bgOp" min="0" max="100" value="70"></div>
+  <div class="row"><label>Draaien</label><input type="range" id="bgRot" min="-180" max="180" value="0"><span id="bgRotV" style="width:34px;text-align:right">0°</span></div>
+  <p class="hint">Sleep je QGIS-export of luchtfoto hierheen. Kies daarna <b>Schaal ijken</b> en klik twee
+     punten waarvan je de echte afstand kent (bv. de 17 m erfgrens).</p>
+
+  <h3>Raster &amp; snap</h3>
+  <div class="row"><label>Raster</label><select id="grid">
+    <option value="0">uit</option><option value="0.1">10 cm</option>
+    <option value="0.25">25 cm</option><option value="0.5" selected>50 cm</option>
+    <option value="1">1 m</option></select></div>
+  <div class="row"><label>Snappen</label><input type="checkbox" id="snap" checked></div>
+  <div class="row"><label>Labels</label><input type="checkbox" id="lbl" checked></div>
+  <div class="row"><label>Tekstgrootte</label><input type="number" id="fs" value="0.30" step="0.05" min="0.1"></div>
+
+  <h3>Project</h3>
+  <button class="btn" id="expSvg">Export SVG (Illustrator)</button>
+  <div class="row"><label>Schaal export</label><select id="expScale">
+    <option value="20">1 : 20</option><option value="50">1 : 50</option>
+    <option value="100" selected>1 : 100</option><option value="200">1 : 200</option></select></div>
+  <button class="btn" id="expPng">Export PNG</button>
+  <button class="btn" id="save">Project opslaan (.json)</button>
+  <button class="btn" id="open">Project openen…</button>
+  <button class="btn warn" id="clear">Alles wissen</button>
+</div>
+
+<!-- ================= MIDDEN ================= -->
+<div id="stage">
+  <svg id="svg"></svg>
+  <div id="drop">Laat los om als achtergrond te gebruiken</div>
+  <div id="numin">
+    <label>lengte</label><input type="number" id="niL" step="0.05" min="0">
+    <label>hoek</label><input type="number" id="niA" step="1">
+    <span class="k">Enter</span>
+    <button id="niDone" class="done">✓ Klaar</button>
+    <button id="niCancel" class="cancel">✕</button>
+    <span id="niInfo"></span>
+  </div>
+</div>
+
+<div id="modal2"><div class="box">
+  <h4 id="s2t">Nieuw vlak</h4>
+  <p id="s2p">Geef de maten op — het vlak komt op de plek waar je klikte.</p>
+  <div class="row" id="r2w"><label>Breedte</label>
+    <input type="number" id="s2w" class="big-in" value="4" step="0.05" min="0.05"> m</div>
+  <div class="row" id="r2h"><label>Hoogte / diepte</label>
+    <input type="number" id="s2h" class="big-in" value="3" step="0.05" min="0.05"> m</div>
+  <div class="row" id="r2d"><label>Diameter</label>
+    <input type="number" id="s2d" class="big-in" value="1" step="0.05" min="0.05"> m</div>
+  <div class="row" id="r2a"><label>Hoek</label><input type="number" id="s2a" value="0" step="1"> °</div>
+  <div class="row" id="r2k"><label>Klikpunt is</label><select id="s2k">
+    <option value="tl">linkerbovenhoek</option><option value="c">het midden</option></select></div>
+  <div class="acts"><button class="btn pri" id="s2ok">Plaatsen</button>
+    <button class="btn" id="s2no">Annuleren</button></div>
+</div></div>
+
+<div id="modal"><div class="box">
+  <h4>Schaal ijken</h4>
+  <p>Je hebt een lijn getrokken van <b id="mDist">—</b> in de huidige schaal.
+     Vul in hoe lang die in werkelijkheid is.</p>
+  <div class="row"><label>Werkelijke afstand</label>
+    <input type="number" id="mReal" class="big-in" value="17" step="0.01" min="0.01"> m</div>
+  <div class="row"><label>Meeschalen</label><select id="mWhat">
+    <option value="bg">alleen achtergrond</option>
+    <option value="all">achtergrond + getekende vormen</option></select></div>
+  <div class="acts"><button class="btn pri" id="mOk">Toepassen</button>
+    <button class="btn" id="mCancel">Annuleren</button></div>
+</div></div>
+
+<!-- ================= RECHTS ================= -->
+<div class="col" id="right">
+  <h3>Vulling</h3>
+  <div class="swatches" id="fills"></div>
+  <button class="btn" id="imgPat">Eigen foto als patroon…</button>
+  <div class="row"><label>Patroonbreedte</label><input type="number" id="patW" value="0.60" step="0.05" min="0.05"> m</div>
+
+  <h3>Boom plaatsen</h3>
+  <div class="row"><label>Kroondiameter</label><input type="number" id="treeD" value="4" step="0.5" min="0.3"> m</div>
+  <div class="row"><label>Soort</label><select id="treeK">
+    <option value="loof">Loofboom</option><option value="conifeer">Conifeer</option>
+    <option value="meerstammig">Meerstammig</option></select></div>
+  <div class="row"><label>Te rooien</label><input type="checkbox" id="treeR"></div>
+  <div class="row"><label>Padbreedte (W)</label><input type="number" id="pathW" value="1.00" step="0.1" min="0.2"> m</div>
+  <p class="hint">Met <b>W</b> teken je één kronkellijn — klik de bocht­punten, <b>Enter</b> sluit af. Die lijn
+     wordt automatisch verbreed tot een pad. Breedte achteraf wijzigen kan altijd bij de vorm zelf.</p>
+
+  <h3>Eigenschappen</h3>
+  <div id="props"><p class="hint">Selecteer een vorm om naam, vulling en maten aan te passen.</p></div>
+
+  <h3>Vormen</h3>
+  <div id="layers"></div>
+
+  <h3>Oppervlaktes</h3>
+  <table><tbody id="totals"></tbody>
+    <tfoot><tr><td>Totaal</td><td id="totAll">0,00 m²</td></tr></tfoot></table>
+  <p class="hint" id="plantHint"></p>
+</div>
+
+<div id="status">
+  <span id="stPos">—</span><span id="stScale">—</span><span id="stTool">Selecteren</span>
+  <span id="stMsg" style="margin-left:auto;color:#9fb3a5"></span>
+</div>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const svg=$('#svg'), NS='http://www.w3.org/2000/svg';
+const nf=(n,d=2)=>n.toLocaleString('nl-BE',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* ---------- patronen ---------- */
+const PATTERNS = {
+  keien:{label:'Keien (Citta Klimata)', w:0.60, h:0.40, bg:'#6f7377', draw:p=>{
+    let s='';const blobs=[[.10,.10,.085,.055],[.29,.09,.075,.06],[.47,.11,.08,.05],
+      [.09,.29,.07,.06],[.27,.30,.09,.055],[.48,.30,.075,.06]];
+    blobs.forEach(b=>{s+=`<ellipse cx="${b[0]*p}" cy="${b[1]*p}" rx="${b[2]*p}" ry="${b[3]*p}" fill="#8d9196"/>`});
+    return s;}},
+  klinker:{label:'Klinkerverband', w:0.42, h:0.21, bg:'#9c8378', draw:p=>
+    `<rect x="0" y="0" width="${.20*p}" height="${.095*p}" fill="#b09488"/>
+     <rect x="${.215*p}" y="0" width="${.20*p}" height="${.095*p}" fill="#a98d81"/>
+     <rect x="${-.09*p}" y="${.11*p}" width="${.20*p}" height="${.095*p}" fill="#ab8f83"/>
+     <rect x="${.125*p}" y="${.11*p}" width="${.20*p}" height="${.095*p}" fill="#b39789"/>
+     <rect x="${.34*p}" y="${.11*p}" width="${.20*p}" height="${.095*p}" fill="#a98d81"/>`},
+  grind:{label:'Grind / split', w:0.25, h:0.25, bg:'#cfc7b8', draw:p=>{
+    let s='';const r=[[.05,.06,.018],[.14,.04,.014],[.21,.10,.017],[.07,.15,.015],[.16,.18,.019],
+      [.23,.21,.013],[.03,.22,.016],[.12,.11,.012],[.20,.15,.011]];
+    r.forEach(c=>{s+=`<circle cx="${c[0]*p}" cy="${c[1]*p}" r="${c[2]*p}" fill="#b3a898"/>`});return s;}},
+  gras:{label:'Gras', w:0.30, h:0.30, bg:'#8fae76', draw:p=>{
+    let s='';for(let i=0;i<8;i++){const x=(i*.0371+.02)%.3,y=(i*.0713+.03)%.3;
+      s+=`<path d="M${x*p} ${(y+.045)*p} q${.008*p} ${-.03*p} ${.016*p} 0" stroke="#7d9c66" fill="none" stroke-width="${.006*p}"/>`}
+    return s;}},
+  heesters:{label:'Heesters / mugo', w:0.80, h:0.80, bg:'#7d9470', draw:p=>
+    `<circle cx="${.24*p}" cy="${.24*p}" r="${.17*p}" fill="none" stroke="#5f7455" stroke-width="${.012*p}"/>
+     <circle cx="${.62*p}" cy="${.36*p}" r="${.20*p}" fill="none" stroke="#5f7455" stroke-width="${.012*p}"/>
+     <circle cx="${.36*p}" cy="${.66*p}" r="${.16*p}" fill="none" stroke="#5f7455" stroke-width="${.012*p}"/>
+     <circle cx="${.70*p}" cy="${.72*p}" r="${.13*p}" fill="none" stroke="#5f7455" stroke-width="${.012*p}"/>`},
+  vaste:{label:'Vaste planten', w:0.40, h:0.40, bg:'#9db98c', draw:p=>{
+    let s='';const d=[[.10,.12],[.28,.08],[.20,.26],[.34,.32],[.06,.32]];
+    d.forEach(c=>{s+=`<circle cx="${c[0]*p}" cy="${c[1]*p}" r="${.028*p}" fill="#6f8c60"/>`});return s;}},
+  schors:{label:'Boomschors', w:0.30, h:0.30, bg:'#7a5f4a', draw:p=>{
+    let s='';const d=[[.05,.07,.05,.02],[.17,.05,.06,.022],[.09,.17,.055,.02],[.21,.19,.05,.02],[.03,.26,.045,.018]];
+    d.forEach(c=>{s+=`<rect x="${c[0]*p}" y="${c[1]*p}" width="${c[2]*p}" height="${c[3]*p}" rx="${.01*p}" fill="#8d7159"/>`});
+    return s;}},
+  schelpen:{label:'Schelpenpad', w:0.24, h:0.24, bg:'#e9e1d1', draw:p=>{
+    const fan=(x,y,r,rot)=>{
+      let s=`<g transform="translate(${x*p} ${y*p}) rotate(${rot})">
+        <path d="M0 0 A${r*p} ${r*p} 0 0 1 ${r*1.73*p*.5} ${-r*p*.5} L0 0Z" fill="#fdfaf3" stroke="#cfc3ac" stroke-width="${.004*p}"/>`;
+      for(let i=1;i<4;i++){const a=(-60+i*15)*Math.PI/180;
+        s+=`<line x1="0" y1="0" x2="${Math.cos(a)*r*p}" y2="${Math.sin(a)*r*p}" stroke="#d8cdb8" stroke-width="${.0035*p}"/>`}
+      return s+'</g>';};
+    return fan(.05,.07,.055,10)+fan(.15,.04,.05,120)+fan(.09,.17,.052,230)+fan(.20,.15,.048,60)+fan(.02,.20,.045,300);}},
+  hout:{label:'Houten vlonder', w:0.30, h:0.15, bg:'#a98455', draw:p=>
+    `<rect x="0" y="0" width="${.30*p}" height="${.068*p}" fill="#b8925f"/>
+     <rect x="0" y="${.078*p}" width="${.30*p}" height="${.068*p}" fill="#b08a5a"/>`},
+  beton:{label:'Beton / keerwand', w:0.30, h:0.30, bg:'#b6b3ac', draw:p=>
+    `<path d="M0 ${.30*p} L${.30*p} 0" stroke="#a3a099" stroke-width="${.01*p}"/>`},
+  water:{label:'Water', w:0.40, h:0.20, bg:'#8fb3c9', draw:p=>
+    `<path d="M0 ${.10*p} q${.10*p} ${-.05*p} ${.20*p} 0 q${.10*p} ${.05*p} ${.20*p} 0"
+      stroke="#7aa2bb" fill="none" stroke-width="${.012*p}"/>`}
+};
+const SOLIDS = {'geen':'none','wit':'#ffffff','zand':'#e6dcc6','donker':'#3f4441','rood':'#c05b4d'};
+let userPats = {};                 // id -> {href, w}
+
+/* ---------- state ---------- */
+const S = {
+  shapes:[], sel:null, tool:'select', fill:'keien', nextId:1,
+  view:{k:38, x:60, y:60},         // k = px per meter
+  bg:null,                          // {href,w,h,x,y,scale,op,on}
+  draft:null, calib:null, undo:[]
+};
+const clone=o=>JSON.parse(JSON.stringify(o));
+function push(){S.undo.push(clone({shapes:S.shapes,nextId:S.nextId}));if(S.undo.length>60)S.undo.shift();}
+function undo(){const p=S.undo.pop();if(!p)return;S.shapes=p.shapes;S.nextId=p.nextId;S.sel=null;draw();}
+
+/* ---------- geometrie ---------- */
+const toWorld=(px,py)=>[(px-S.view.x)/S.view.k,(py-S.view.y)/S.view.k];
+const toScreen=(x,y)=>[x*S.view.k+S.view.x,y*S.view.k+S.view.y];
+function snapPt(p){
+  const g=+$('#grid').value;
+  if($('#snap').checked){                        // eerst op bestaande punten
+    const tol=9/S.view.k;
+    for(const s of S.shapes){for(const q of (s.pts||[])){
+      if(Math.hypot(q[0]-p[0],q[1]-p[1])<tol) return [q[0],q[1]];}}
+  }
+  if(g>0&&$('#snap').checked) return [Math.round(p[0]/g)*g, Math.round(p[1]/g)*g];
+  return p;
+}
+// Catmull-Rom → samples
+function samples(pts,closed,smooth){
+  if(!smooth||pts.length<3) return pts;
+  const P=pts.slice(), out=[], n=P.length, N=14;
+  const at=i=>closed?P[(i+n)%n]:P[Math.max(0,Math.min(n-1,i))];
+  const last=closed?n:n-1;
+  for(let i=0;i<last;i++){
+    const p0=at(i-1),p1=at(i),p2=at(i+1),p3=at(i+2);
+    for(let j=0;j<N;j++){const t=j/N,t2=t*t,t3=t2*t;
+      out.push([
+        .5*((2*p1[0])+(-p0[0]+p2[0])*t+(2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2+(-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
+        .5*((2*p1[1])+(-p0[1]+p2[1])*t+(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2+(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)]);}
+  }
+  if(!closed) out.push(P[n-1]);
+  return out;
+}
+// open lijn + breedte → band (offset polygoon links/rechts van de hartlijn)
+function bandPoly(s){
+  const w=(s.band||0)/2; if(!(w>0)) return null;
+  const P=samples(s.pts,false,s.smooth); if(P.length<2) return null;
+  const N=[];
+  for(let i=0;i<P.length;i++){
+    const a=P[Math.max(0,i-1)], b=P[Math.min(P.length-1,i+1)];
+    let dx=b[0]-a[0], dy=b[1]-a[1]; const L=Math.hypot(dx,dy)||1;
+    N.push([-dy/L, dx/L]);
+  }
+  const A=P.map((p,i)=>[p[0]+N[i][0]*w, p[1]+N[i][1]*w]);
+  const B=P.map((p,i)=>[p[0]-N[i][0]*w, p[1]-N[i][1]*w]).reverse();
+  return A.concat(B);
+}
+const isBand = s=> s.type==='poly' && !s.closed && s.band>0;
+const isArea = s=> s.closed || s.type==='circle' || isBand(s);
+function ring(s){                       // gesloten puntenreeks voor opp./omtrek
+  if(isBand(s)) return bandPoly(s);
+  return samples(s.pts,true,s.smooth);
+}
+function pathD(s){
+  if(s.type==='circle'||s.type==='tree'){const r=s.r;
+    return `M${s.c[0]-r} ${s.c[1]} a${r} ${r} 0 1 0 ${2*r} 0 a${r} ${r} 0 1 0 ${-2*r} 0Z`;}
+  const B=bandPoly(s);
+  if(B) return 'M'+B.map(p=>`${p[0]} ${p[1]}`).join(' L')+'Z';
+  const P=samples(s.pts,s.closed,s.smooth);
+  if(!P.length) return '';
+  return 'M'+P.map(p=>`${p[0]} ${p[1]}`).join(' L')+(s.closed?'Z':'');
+}
+function area(s){
+  if(s.type==='tree') return 0;
+  if(s.type==='circle') return Math.PI*s.r*s.r;
+  if(!s.closed && !isBand(s)) return 0;
+  const P=ring(s); if(!P) return 0; let a=0;
+  for(let i=0;i<P.length;i++){const q=P[(i+1)%P.length];a+=P[i][0]*q[1]-q[0]*P[i][1];}
+  return Math.abs(a)/2;
+}
+function midLen(s){                     // lengte van de hartlijn
+  const P=samples(s.pts||[],false,s.smooth); let l=0;
+  for(let i=0;i<P.length-1;i++) l+=Math.hypot(P[i+1][0]-P[i][0],P[i+1][1]-P[i][1]);
+  return l;
+}
+function perim(s){
+  if(s.type==='circle'||s.type==='tree') return 2*Math.PI*s.r;
+  if(isBand(s)) return midLen(s);
+  const P=samples(s.pts,s.closed,s.smooth); let l=0;
+  for(let i=0;i<P.length-(s.closed?0:1);i++){const q=P[(i+1)%P.length];l+=Math.hypot(q[0]-P[i][0],q[1]-P[i][1]);}
+  return l;
+}
+function centroid(s){
+  if(s.c) return s.c.slice();
+  const P=samples(s.pts,s.closed,s.smooth);
+  let x=0,y=0;P.forEach(p=>{x+=p[0];y+=p[1]});return [x/P.length,y/P.length];
+}
+/* ---------- roteren ---------- */
+function rotateShape(s,deg,anchor){
+  const a=anchor||centroid(s), t=deg*Math.PI/180, co=Math.cos(t), si=Math.sin(t);
+  const R=(x,y)=>[a[0]+(x-a[0])*co-(y-a[1])*si, a[1]+(x-a[0])*si+(y-a[1])*co];
+  if(s.pts) s.pts=s.pts.map(p=>R(p[0],p[1]));
+  if(s.c) s.c=R(s.c[0],s.c[1]);
+}
+/* ---------- boomsymbool ---------- */
+function treePath(cx,cy,r,kind){
+  const P=(n,inner,bulge)=>{
+    let d='';
+    for(let i=0;i<n;i++){
+      const a0=i/n*2*Math.PI, a1=(i+1)/n*2*Math.PI, am=(a0+a1)/2;
+      const p0=[cx+Math.cos(a0)*r*inner, cy+Math.sin(a0)*r*inner];
+      const p1=[cx+Math.cos(a1)*r*inner, cy+Math.sin(a1)*r*inner];
+      const pm=[cx+Math.cos(am)*r*bulge, cy+Math.sin(am)*r*bulge];
+      d += (i?'':`M${p0[0]} ${p0[1]}`)+` Q${pm[0]} ${pm[1]} ${p1[0]} ${p1[1]}`;
+    }
+    return d+'Z';
+  };
+  if(kind==='conifeer'){                       // fijne naaldkartel
+    let d='';const n=24;
+    for(let i=0;i<n*2;i++){const a=i/(n*2)*2*Math.PI, rr=r*(i%2?0.74:1);
+      d+=(i?'L':'M')+(cx+Math.cos(a)*rr)+' '+(cy+Math.sin(a)*rr);}
+    return d+'Z';
+  }
+  if(kind==='meerstammig') return P(9,.55,.72).replace(/^M/,'M') ;
+  return P(11,.86,1.04);                        // loofboom: schulprand
+}
+function treeSvg(s,u){
+  const sel=S.sel===s.id, r=s.r, c=s.c, kind=s.kind||'loof', dood=s.rooien;
+  const col = dood?'#b4413a':(kind==='conifeer'?'#4a6b52':'#5f7f55');
+  let g=`<g>`;
+  if(kind==='meerstammig'){
+    [[-.38,-.2,.62],[.36,-.28,.58],[.05,.34,.66]].forEach(o=>{
+      g+=`<path d="${treePath(c[0]+o[0]*r,c[1]+o[1]*r,r*o[2],'loof')}"
+        fill="${col}" fill-opacity=".24" stroke="${col}" stroke-width="${1.1*u}"/>`;});
+  } else {
+    g+=`<path d="${treePath(c[0],c[1],r,kind)}" fill="${col}" fill-opacity=".22"
+      stroke="${col}" stroke-width="${1.3*u}" ${dood?`stroke-dasharray="${.12} ${.08}"`:''}/>`;
+    g+=`<circle cx="${c[0]}" cy="${c[1]}" r="${r*.5}" fill="none" stroke="${col}"
+      stroke-width="${.7*u}" stroke-opacity=".5"/>`;
+  }
+  g+=`<circle cx="${c[0]}" cy="${c[1]}" r="${Math.max(r*.07,.06)}" fill="${col}"/>`;
+  g+=`<line x1="${c[0]-r*.14}" y1="${c[1]}" x2="${c[0]+r*.14}" y2="${c[1]}" stroke="${col}" stroke-width="${.7*u}"/>
+      <line x1="${c[0]}" y1="${c[1]-r*.14}" x2="${c[0]}" y2="${c[1]+r*.14}" stroke="${col}" stroke-width="${.7*u}"/>`;
+  if(dood) g+=`<line x1="${c[0]-r*.5}" y1="${c[1]-r*.5}" x2="${c[0]+r*.5}" y2="${c[1]+r*.5}"
+      stroke="#b4413a" stroke-width="${1.6*u}"/><line x1="${c[0]+r*.5}" y1="${c[1]-r*.5}"
+      x2="${c[0]-r*.5}" y2="${c[1]+r*.5}" stroke="#b4413a" stroke-width="${1.6*u}"/>`;
+  if(sel) g+=`<circle cx="${c[0]}" cy="${c[1]}" r="${r}" fill="none" stroke="#2f7de1"
+      stroke-width="${1.4*u}" stroke-dasharray="${.15} ${.1}"/>`;
+  return g+'</g>';
+}
+const fillOf=s=> s.fill in PATTERNS||s.fill in userPats ? `url(#pat-${s.fill})`
+                : (SOLIDS[s.fill]||s.fill||'none');
+
+/* ---------- defs ---------- */
+function defs(px){                       // px = eenheden per meter voor patroontekening
+  let d='';
+  for(const [k,P] of Object.entries(PATTERNS)){
+    d+=`<pattern id="pat-${k}" patternUnits="userSpaceOnUse" width="${P.w}" height="${P.h}">
+        <rect width="${P.w}" height="${P.h}" fill="${P.bg}"/>${P.draw(1)}</pattern>`;
+  }
+  for(const [k,U] of Object.entries(userPats)){
+    d+=`<pattern id="pat-${k}" patternUnits="userSpaceOnUse" width="${U.w}" height="${U.w*U.ar}">
+        <image href="${U.href}" width="${U.w}" height="${U.w*U.ar}" preserveAspectRatio="none"/></pattern>`;
+  }
+  d+=`<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+       orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#33383a"/></marker>`;
+  return `<defs>${d}</defs>`;
+}
+
+/* ---------- tekenen ---------- */
+function draw(){
+  const W=svg.clientWidth,H=svg.clientHeight,k=S.view.k,fs=+$('#fs').value||0.3;
+  const showL=$('#lbl').checked;
+  let g='';
+  // raster
+  const gr=+$('#grid').value;
+  if(gr>0){
+    const x0=Math.floor(toWorld(0,0)[0]/gr)*gr, y0=Math.floor(toWorld(0,0)[1]/gr)*gr;
+    const x1=toWorld(W,H)[0], y1=toWorld(W,H)[1];
+    let ln='';
+    for(let x=x0;x<=x1;x+=gr){const maj=Math.abs(x/1-Math.round(x/1))<1e-6;
+      ln+=`<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="${maj?'#d3d0c9':'#e4e2dd'}" stroke-width="${(maj?1:.6)/k}"/>`}
+    for(let y=y0;y<=y1;y+=gr){const maj=Math.abs(y/1-Math.round(y/1))<1e-6;
+      ln+=`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${maj?'#d3d0c9':'#e4e2dd'}" stroke-width="${(maj?1:.6)/k}"/>`}
+    g+=ln;
+  }
+  // achtergrond
+  if(S.bg&&S.bg.on){
+    const bw=S.bg.w*S.bg.scale, bh=S.bg.h*S.bg.scale;
+    g+=`<image href="${S.bg.href}" x="${S.bg.x}" y="${S.bg.y}" width="${bw}" height="${bh}"
+      opacity="${S.bg.op}" preserveAspectRatio="none"
+      transform="rotate(${S.bg.rot||0} ${S.bg.x+bw/2} ${S.bg.y+bh/2})"/>`;}
+  // vormen
+  for(const s of S.shapes){
+    if(s.type==='dim'){g+=dimSvg(s,1/k,fs,showL);continue;}
+    const isSel=S.sel===s.id;
+    if(s.type==='tree'){
+      g+=treeSvg(s,1/k);
+      if(showL) g+=`<text x="${s.c[0]}" y="${s.c[1]+s.r+fs}" text-anchor="middle" font-size="${fs*.85}"
+        font-family="sans-serif" fill="#3f4441" stroke="#fff" stroke-width="${fs*.14}"
+        paint-order="stroke">${esc(s.name)} ø${nf(s.r*2,1)}</text>`;
+    } else {
+      g+=`<path d="${pathD(s)}" fill="${isArea(s)?fillOf(s):'none'}"
+           stroke="${isSel?'#2f7de1':(s.stroke||'#3a3f3c')}" stroke-width="${(isSel?2.4:(s.sw||1.2))/k}"
+           stroke-linejoin="round" stroke-linecap="round"
+           ${s.dash?`stroke-dasharray="${8/k} ${5/k}"`:''}/>`;
+      if(isBand(s)&&isSel){
+        const P=samples(s.pts,false,s.smooth);
+        g+=`<path d="M${P.map(p=>p[0]+' '+p[1]).join(' L')}" fill="none" stroke="#2f7de1"
+             stroke-width="${1/k}" stroke-dasharray="${5/k} ${4/k}" stroke-opacity=".8"/>`;
+      }
+      if(showL&&isArea(s)){
+        const c=centroid(s);
+        g+=`<text x="${c[0]}" y="${c[1]}" text-anchor="middle" font-size="${fs}"
+             font-family="sans-serif" font-weight="600" fill="#1f2421"
+             stroke="#fff" stroke-width="${fs*0.16}" paint-order="stroke">${esc(s.name)}</text>`;
+        g+=`<text x="${c[0]}" y="${c[1]+fs*1.15}" text-anchor="middle" font-size="${fs*.82}"
+             font-family="sans-serif" fill="#3f4441"
+             stroke="#fff" stroke-width="${fs*0.14}" paint-order="stroke">${nf(area(s))} m²${
+               isBand(s)?` · ${nf(midLen(s),1)} × ${nf(s.band,2)} m`:''}</text>`;
+      }
+    }
+    if(isSel){
+      const pts = s.c?[s.c,[s.c[0]+s.r,s.c[1]]]:s.pts;
+      pts.forEach((p,i)=>{g+=`<rect x="${p[0]-4/k}" y="${p[1]-4/k}" width="${8/k}" height="${8/k}"
+        fill="#fff" stroke="#2f7de1" stroke-width="${1.6/k}" data-h="${i}"/>`});
+      if(!s.c){                                    // rotatiegreep
+        const c=centroid(s), ys=s.pts.map(p=>p[1]), top=Math.min(...ys), hy=top-22/k;
+        g+=`<line x1="${c[0]}" y1="${top}" x2="${c[0]}" y2="${hy}" stroke="#2f7de1" stroke-width="${1/k}"/>
+            <circle cx="${c[0]}" cy="${hy}" r="${6/k}" fill="#fff" stroke="#2f7de1" stroke-width="${2/k}"/>
+            <circle cx="${c[0]}" cy="${hy}" r="${2/k}" fill="#2f7de1"/>`;
+        S._rotH=[c[0],hy];
+      } else S._rotH=null;
+    }
+  }
+  // draft
+  if(S.draft&&S.draft.pts.length){
+    const d=S.draft;
+    g+=`<path d="${pathD({...d,closed:d.closed&&d.pts.length>2})}" fill="none"
+         stroke="#2f7de1" stroke-width="${1.6/k}" stroke-dasharray="${6/k} ${4/k}"/>`;
+    d.pts.forEach(p=>{g+=`<circle cx="${p[0]}" cy="${p[1]}" r="${3.2/k}" fill="#2f7de1"/>`});
+  }
+  if(S.calib&&S.calib.length){
+    const B = S.calib[1] || S.calibHover;
+    if(B) g+=`<line x1="${S.calib[0][0]}" y1="${S.calib[0][1]}" x2="${B[0]}" y2="${B[1]}"
+      stroke="#b4713a" stroke-width="${2/k}" stroke-dasharray="${7/k} ${4/k}"/>`;
+    [...S.calib, ...(S.calib[1]?[]:(S.calibHover?[S.calibHover]:[]))].forEach(p=>{
+      g+=`<circle cx="${p[0]}" cy="${p[1]}" r="${5/k}" fill="#fff" stroke="#b4713a" stroke-width="${2/k}"/>
+          <line x1="${p[0]-8/k}" y1="${p[1]}" x2="${p[0]+8/k}" y2="${p[1]}" stroke="#b4713a" stroke-width="${1.2/k}"/>
+          <line x1="${p[0]}" y1="${p[1]-8/k}" x2="${p[0]}" y2="${p[1]+8/k}" stroke="#b4713a" stroke-width="${1.2/k}"/>`});
+  }
+  svg.innerHTML = defs(1) + `<g transform="translate(${S.view.x},${S.view.y}) scale(${k})">${g}</g>`;
+  $('#stScale').textContent = `1 px = ${nf(100/k,1)} cm · zoom ${nf(k,0)} px/m`;
+  panels(); numinShow();
+}
+function dimSvg(s,u,fs,showL){
+  const [a,b]=s.pts, L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+  const ang=Math.atan2(b[1]-a[1],b[0]-a[0]);
+  const off=s.off||0, nx=Math.sin(ang)*off, ny=-Math.cos(ang)*off;
+  const A=[a[0]+nx,a[1]+ny],B=[b[0]+nx,b[1]+ny];
+  const mx=(A[0]+B[0])/2,my=(A[1]+B[1])/2;
+  let deg=ang*180/Math.PI; if(deg>90||deg<-90)deg+=180;
+  const c=S.sel===s.id?'#2f7de1':'#33383a';
+  return `<line x1="${a[0]}" y1="${a[1]}" x2="${A[0]}" y2="${A[1]}" stroke="${c}" stroke-width="${.8*u}"/>
+   <line x1="${b[0]}" y1="${b[1]}" x2="${B[0]}" y2="${B[1]}" stroke="${c}" stroke-width="${.8*u}"/>
+   <line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="${c}" stroke-width="${1.2*u}"
+     marker-start="url(#ar)" marker-end="url(#ar)"/>
+   ${showL?`<text x="${mx}" y="${my-fs*.35}" text-anchor="middle" font-size="${fs}" font-family="sans-serif"
+     font-weight="600" fill="${c}" stroke="#fff" stroke-width="${fs*.16}" paint-order="stroke"
+     transform="rotate(${deg} ${mx} ${my})">${nf(L)} m</text>`:''}`;
+}
+const esc=t=>String(t||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]));
+
+/* ---------- panelen rechts ---------- */
+function panels(){
+  // lagen
+  $('#layers').innerHTML = S.shapes.length? S.shapes.map(s=>{
+    const col = s.type==='tree'?(s.rooien?'#b4413a':'#5f7f55')
+              : (s.fill in PATTERNS?PATTERNS[s.fill].bg:(SOLIDS[s.fill]||'#ccc'));
+    const a = s.type==='tree'? 'ø'+nf(s.r*2,1)+' m'
+            : s.type==='dim'? nf(Math.hypot(s.pts[1][0]-s.pts[0][0],s.pts[1][1]-s.pts[0][1]))+' m'
+            : isBand(s)? nf(area(s))+' m²'
+            : (s.closed||s.type==='circle'? nf(area(s))+' m²' : nf(perim(s))+' m');
+    return `<div class="lay ${S.sel===s.id?'on':''}" data-id="${s.id}">
+      <span class="dot" style="background:${s.type==='dim'?'#33383a':col}"></span>
+      <span class="nm">${esc(s.name)}</span><span class="ar">${a}</span></div>`;
+  }).join('') : '<div class="lay" style="color:#9aa09a">nog niets getekend</div>';
+
+  // totalen per vulling
+  const by={};let tot=0;
+  S.shapes.filter(s=>s.type!=='dim'&&s.type!=='tree'&&isArea(s)).forEach(s=>{
+    const key=(PATTERNS[s.fill]?PATTERNS[s.fill].label:(userPats[s.fill]?'Eigen patroon':s.fill));
+    by[key]=(by[key]||0)+area(s);tot+=area(s);});
+  $('#totals').innerHTML=Object.entries(by).sort((a,b)=>b[1]-a[1])
+    .map(([k,v])=>`<tr><td>${esc(k)}</td><td>${nf(v)} m²</td></tr>`).join('')||'<tr><td colspan="2" style="color:#9aa09a">—</td></tr>';
+  $('#totAll').textContent=nf(tot)+' m²';
+
+  const pl=S.shapes.filter(s=>s.plantafstand>0&&isArea(s)&&s.type!=='tree');
+  const tr=S.shapes.filter(s=>s.type==='tree');
+  const blijft=tr.filter(t=>!t.rooien), weg=tr.filter(t=>t.rooien);
+  $('#plantHint').innerHTML = [
+    ...pl.map(s=>`<b>${esc(s.name)}</b>: ${Math.round(area(s)/(s.plantafstand**2))} planten bij ${nf(s.plantafstand)} m onderling.`),
+    tr.length?`<b>Bomen</b>: ${blijft.length} te behouden${weg.length?`, ${weg.length} te rooien`:''} — samen ${nf(tr.reduce((a,t)=>a+Math.PI*t.r*t.r,0),0)} m² kroonprojectie.`:''
+  ].filter(Boolean).join('<br>');
+
+  // eigenschappen
+  const s=S.shapes.find(x=>x.id===S.sel);
+  if(!s){$('#props').innerHTML='<p class="hint">Selecteer een vorm om naam, vulling en maten aan te passen.</p>';return;}
+  if(s.type==='tree'){
+    $('#props').innerHTML=`
+      <div class="row"><label>Naam</label><input type="text" id="pName" value="${esc(s.name)}"></div>
+      <div class="row"><label>Kroondiameter</label><input type="number" id="pD" value="${(s.r*2).toFixed(1)}" step="0.5" min="0.3"> m</div>
+      <div class="row"><label>Soort</label><select id="pK">
+        <option value="loof"${s.kind==='loof'?' selected':''}>Loofboom</option>
+        <option value="conifeer"${s.kind==='conifeer'?' selected':''}>Conifeer</option>
+        <option value="meerstammig"${s.kind==='meerstammig'?' selected':''}>Meerstammig</option></select></div>
+      <div class="row"><label>Te rooien</label><input type="checkbox" id="pRooi" ${s.rooien?'checked':''}></div>
+      <div class="row"><label>Kroonoppervlak</label><span class="tag">${nf(Math.PI*s.r*s.r)} m²</span></div>
+      <button class="btn" id="pDup">Dupliceren</button>
+      <button class="btn warn" id="pDel">Verwijderen</button>`;
+    $('#pName').oninput=e=>{s.name=e.target.value;panels()};
+    $('#pD').oninput=e=>{s.r=Math.max(.15,(+e.target.value||1)/2);draw()};
+    $('#pK').onchange=e=>{push();s.kind=e.target.value;draw()};
+    $('#pRooi').onchange=e=>{push();s.rooien=e.target.checked;draw()};
+    $('#pDup').onclick=()=>{push();const c=clone(s);c.id=S.nextId++;c.c=[c.c[0]+1,c.c[1]+1];S.shapes.push(c);S.sel=c.id;draw()};
+    $('#pDel').onclick=()=>{push();S.shapes=S.shapes.filter(x=>x.id!==s.id);S.sel=null;draw()};
+    return;}
+  const isA=isArea(s);
+  let bb='';
+  if(s.type!=='dim'&&s.type!=='circle'){
+    const xs=s.pts.map(p=>p[0]),ys=s.pts.map(p=>p[1]);
+    bb=`<div class="row"><label>Breedte</label><input type="number" id="pBW"
+          value="${(Math.max(...xs)-Math.min(...xs)).toFixed(2)}" step="0.05" min="0.05"> m</div>
+        <div class="row"><label>Hoogte / diepte</label><input type="number" id="pBH"
+          value="${(Math.max(...ys)-Math.min(...ys)).toFixed(2)}" step="0.05" min="0.05"> m</div>
+        <p class="hint" style="margin:2px 0 8px">Omhullende maat — schaalt vanuit de linkerbovenhoek.</p>`;
+  }
+  if(s.type==='circle') bb=`<div class="row"><label>Diameter</label><input type="number" id="pDia"
+      value="${(s.r*2).toFixed(2)}" step="0.05" min="0.05"> m</div>`;
+  $('#props').innerHTML=`
+    <div class="row"><label>Naam</label><input type="text" id="pName" value="${esc(s.name)}"></div>
+    ${s.type==='circle'?`<div class="row"><label>Straal</label><input type="number" id="pR" value="${s.r.toFixed(2)}" step="0.05"> m</div>`:''}
+    ${s.type!=='dim'&&s.type!=='circle'?`
+      <div class="row"><label>Gesloten vlak</label><input type="checkbox" id="pClosed" ${s.closed?'checked':''}></div>
+      <div class="row"><label>Vloeiende curve</label><input type="checkbox" id="pSmooth" ${s.smooth?'checked':''}></div>`:''}
+    ${s.type==='poly'&&!s.closed?`<div class="row"><label>Padbreedte</label><input type="number" id="pBand"
+       value="${(s.band||0).toFixed(2)}" step="0.1" min="0"> m</div>`:''}
+    ${s.type==='dim'?`<div class="row"><label>Uitzet</label><input type="number" id="pOff" value="${(s.off||0).toFixed(2)}" step="0.1"> m</div>`:''}
+    <div class="row"><label>Lijndikte</label><input type="number" id="pSw" value="${(s.sw||1.2).toFixed(1)}" step="0.2"></div>
+    <div class="row"><label>Streepjes</label><input type="checkbox" id="pDash" ${s.dash?'checked':''}></div>
+    ${s.type!=='dim'&&s.type!=='circle'?`
+      <div class="row"><label>Draaien</label>
+        <span><button class="btn" style="width:34px;display:inline-block;padding:3px" data-rot="-90">↺</button>
+        <button class="btn" style="width:34px;display:inline-block;padding:3px" data-rot="-15">−15</button>
+        <button class="btn" style="width:34px;display:inline-block;padding:3px" data-rot="15">+15</button>
+        <button class="btn" style="width:34px;display:inline-block;padding:3px" data-rot="90">↻</button></span></div>
+      <div class="row"><label>Exacte hoek</label><input type="number" id="pRot" value="0" step="1"> °
+        <button class="btn" style="width:52px;margin:0;padding:3px" id="pRotGo">draai</button></div>`:''}
+    ${isA?`<div class="row"><label>Plantafstand</label><input type="number" id="pPl"
+       value="${s.plantafstand||0}" step="0.05" min="0"> m</div>`:''}
+    ${isA?`<div class="row"><label>Oppervlakte</label><span class="tag">${nf(area(s))} m²</span></div>`:''}
+    <div class="row"><label>${isBand(s)?'Hartlijn':(isA?'Omtrek':'Lengte')}</label><span class="tag">${nf(perim(s))} m</span></div>
+    ${bb}
+    <button class="btn" id="pDup">Dupliceren</button>
+    <button class="btn" id="pFwd">Naar voren</button>
+    <button class="btn warn" id="pDel">Verwijderen</button>`;
+  const on=(id,ev,fn)=>{const e=$(id);if(e)e.addEventListener(ev,fn)};
+  on('#pName','input',e=>{s.name=e.target.value;});
+  on('#pR','input',e=>{s.r=Math.max(.05,+e.target.value||.05);draw()});
+  on('#pClosed','change',e=>{push();s.closed=e.target.checked;draw()});
+  on('#pSmooth','change',e=>{push();s.smooth=e.target.checked;draw()});
+  on('#pOff','input',e=>{s.off=+e.target.value||0;draw()});
+  on('#pSw','input',e=>{s.sw=+e.target.value||1.2;draw()});
+  on('#pDash','change',e=>{s.dash=e.target.checked;draw()});
+  on('#pBand','input',e=>{s.band=Math.max(0,+e.target.value||0);draw()});
+  const resize=(axis,val)=>{
+    const xs=s.pts.map(p=>p[0]),ys=s.pts.map(p=>p[1]);
+    const x0=Math.min(...xs),y0=Math.min(...ys);
+    const w=Math.max(...xs)-x0, h=Math.max(...ys)-y0;
+    const f=Math.max(.02,val)/((axis==='w'?w:h)||1);
+    if(!isFinite(f)||f<=0)return;
+    s.pts=s.pts.map(p=> axis==='w' ? [x0+(p[0]-x0)*f, p[1]] : [p[0], y0+(p[1]-y0)*f]);
+    draw();};
+  on('#pBW','change',e=>{push();resize('w',+e.target.value)});
+  on('#pBH','change',e=>{push();resize('h',+e.target.value)});
+  on('#pDia','change',e=>{push();s.r=Math.max(.025,(+e.target.value||1)/2);draw()});
+  on('#pRotGo','click',()=>{push();rotateShape(s,+$('#pRot').value||0);draw()});
+  $$('#props [data-rot]').forEach(b=>b.onclick=()=>{push();rotateShape(s,+b.dataset.rot);draw()});
+  on('#pPl','input',e=>{s.plantafstand=+e.target.value||0;panels()});
+  on('#pDup','click',()=>{push();const c=clone(s);c.id=S.nextId++;c.name=s.name+' kopie';
+    if(c.pts)c.pts=c.pts.map(p=>[p[0]+.5,p[1]+.5]);if(c.c)c.c=[c.c[0]+.5,c.c[1]+.5];
+    S.shapes.push(c);S.sel=c.id;draw()});
+  on('#pFwd','click',()=>{push();const i=S.shapes.indexOf(s);S.shapes.splice(i,1);S.shapes.push(s);draw()});
+  on('#pDel','click',()=>{push();S.shapes=S.shapes.filter(x=>x.id!==s.id);S.sel=null;draw()});
+}
+
+/* ---------- vulling-swatches ---------- */
+function buildFills(){
+  const mk=(id,label,inner)=>`<button class="sw ${S.fill===id?'on':''}" data-fill="${id}" title="${label}">${inner}</button>`;
+  let h='';
+  for(const [k,P] of Object.entries(PATTERNS)){
+    h+=mk(k,P.label,`<svg viewBox="0 0 1 1" preserveAspectRatio="none"><rect width="1" height="1" fill="${P.bg}"/>
+      <g transform="scale(${1/Math.max(P.w,P.h)*0.9})">${P.draw(1)}</g></svg>`);
+  }
+  for(const [k,U] of Object.entries(userPats))
+    h+=mk(k,'Eigen patroon',`<svg viewBox="0 0 1 1"><image href="${U.href}" width="1" height="1" preserveAspectRatio="xMidYMid slice"/></svg>`);
+  for(const [k,c] of Object.entries(SOLIDS))
+    h+=mk(k,k,`<svg viewBox="0 0 1 1"><rect width="1" height="1" fill="${c==='none'?'#fff':c}"/>${c==='none'?'<path d="M0 1 L1 0" stroke="#c33" stroke-width=".06"/>':''}</svg>`);
+  $('#fills').innerHTML=h;
+  $$('#fills .sw').forEach(b=>b.onclick=()=>{
+    S.fill=b.dataset.fill;
+    const s=S.shapes.find(x=>x.id===S.sel);
+    if(s&&s.type!=='dim'){push();s.fill=S.fill;}
+    buildFills();draw();});
+}
+
+/* ---------- interactie ---------- */
+let drag=null, lastDown={t:0,x:0,y:0};
+function evPt(e){const r=svg.getBoundingClientRect();return toWorld(e.clientX-r.left,e.clientY-r.top);}
+function hit(p){
+  for(let i=S.shapes.length-1;i>=0;i--){const s=S.shapes[i];
+    if(s.type==='circle'){if(Math.hypot(p[0]-s.c[0],p[1]-s.c[1])<=s.r)return s;continue;}
+    const P=samples(s.pts,s.closed,s.smooth);
+    if(s.closed&&pip(p,P))return s;
+    for(let j=0;j<P.length-1;j++) if(distSeg(p,P[j],P[j+1])<8/S.view.k) return s;
+    if(s.type==='dim'&&distSeg(p,s.pts[0],s.pts[1])<10/S.view.k) return s;
+  } return null;
+}
+function pip(p,P){let c=false;
+  for(let i=0,j=P.length-1;i<P.length;j=i++){
+    if((P[i][1]>p[1])!==(P[j][1]>p[1]) &&
+       p[0]<(P[j][0]-P[i][0])*(p[1]-P[i][1])/(P[j][1]-P[i][1])+P[i][0]) c=!c;}
+  return c;}
+function distSeg(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],L=dx*dx+dy*dy;
+  let t=L?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L:0;t=Math.max(0,Math.min(1,t));
+  return Math.hypot(p[0]-(a[0]+t*dx),p[1]-(a[1]+t*dy));}
+
+svg.addEventListener('pointerdown',e=>{
+  // rechtermuisknop sluit een lopende lijn af
+  if(e.button===2){if(S.draft){e.preventDefault();endDraft();}return;}
+  svg.setPointerCapture(e.pointerId);
+  const raw=evPt(e), p=snapPt(raw);
+  if(e.button===1||e.shiftKey||S.tool==='pan'){drag={mode:'pan',sx:e.clientX,sy:e.clientY,ox:S.view.x,oy:S.view.y};return;}
+  const T=S.tool;
+  if(T==='calib'){
+    S.calib=S.calib||[];S.calib.push(raw);
+    if(S.calib.length===1){msg('Klik nu het tweede punt');draw();return;}
+    if(S.calib.length===2){
+      const d=Math.hypot(S.calib[1][0]-S.calib[0][0],S.calib[1][1]-S.calib[0][1]);
+      if(d<1e-4){S.calib=null;msg('Punten liggen te dicht op elkaar — probeer opnieuw');draw();return;}
+      openCalib(d);}
+    draw();return;}
+  if(T==='tree'){push();
+    add({type:'tree',c:p,r:(+$('#treeD').value||4)/2,kind:$('#treeK').value,rooien:$('#treeR').checked,
+         name:$('#treeK').value==='conifeer'?'Conifeer':'Boom',fill:'geen'});
+    draw();return;}
+  if(T==='poly'||T==='line'||T==='path'){
+    // dubbelklik zelf detecteren: draw() vervangt de SVG-inhoud, dus de browser
+    // vuurt geen dblclick meer af
+    const now=performance.now();
+    if(S.draft&&S.draft.pts.length>=2&&now-lastDown.t<420&&
+       Math.hypot(raw[0]-lastDown.x,raw[1]-lastDown.y)<9/S.view.k){
+      lastDown.t=0;endDraft();return;}
+    lastDown={t:now,x:raw[0],y:raw[1]};
+    if(!S.draft)S.draft={pts:[],closed:T==='poly',smooth:T==='path'};
+    const f=S.draft.pts[0];
+    if(f&&S.draft.pts.length>2&&T!=='path'&&Math.hypot(p[0]-f[0],p[1]-f[1])<10/S.view.k){finishDraft();return;}
+    S.draft.pts.push(p);draw();return;}
+  if(T==='rect'||T==='circle'||T==='dim'){drag={mode:T,a:p};return;}
+  // select
+  if(S._rotH&&Math.hypot(raw[0]-S._rotH[0],raw[1]-S._rotH[1])<9/S.view.k){
+    const s=S.shapes.find(x=>x.id===S.sel);
+    if(s){push();drag={mode:'rotate',s,anchor:centroid(s),
+      a0:Math.atan2(raw[1]-centroid(s)[1],raw[0]-centroid(s)[0])};return;}}
+  const h=hitHandle(raw);
+  if(h){drag={mode:'vertex',s:h.s,i:h.i};push();return;}
+  const s=hit(raw);
+  S.sel=s?s.id:null;
+  if(s){push();drag={mode:'move',s,last:p};}
+  else drag={mode:'pan',sx:e.clientX,sy:e.clientY,ox:S.view.x,oy:S.view.y};
+  draw();
+});
+/* ---------- maten intypen bij nieuw vlak ---------- */
+let sizeAt=null, sizeKind=null;
+function openSize(kind,at){
+  sizeKind=kind; sizeAt=at;
+  const rect=kind==='rect';
+  $('#s2t').textContent = rect?'Nieuwe rechthoek':'Nieuwe cirkel';
+  $('#s2p').textContent = rect
+    ? 'Typ de maten — het vlak komt op de plek waar je klikte. Slepen kan ook.'
+    : 'Typ de diameter — de cirkel komt om het punt waar je klikte.';
+  ['#r2w','#r2h','#r2a','#r2k'].forEach(i=>$(i).style.display=rect?'':'none');
+  $('#r2d').style.display=rect?'none':'';
+  $('#modal2').classList.add('on');
+  setTimeout(()=>{const i=$(rect?'#s2w':'#s2d');i.focus();i.select();},30);
+}
+function closeSize(apply){
+  $('#modal2').classList.remove('on');
+  if(apply&&sizeAt){
+    const a=sizeAt;
+    if(sizeKind==='rect'){
+      const w=+$('#s2w').value||0, h=+$('#s2h').value||0;
+      if(w>0&&h>0){push();
+        const o = $('#s2k').value==='c' ? [a[0]-w/2,a[1]-h/2] : a;
+        const s=add({type:'poly',closed:true,
+          pts:[[o[0],o[1]],[o[0]+w,o[1]],[o[0]+w,o[1]+h],[o[0],o[1]+h]],
+          name:`${nf(w)} × ${nf(h)} m`});
+        const ang=+$('#s2a').value||0; if(ang) rotateShape(s,ang);
+        msg(`Vlak geplaatst: ${nf(w)} × ${nf(h)} m = ${nf(w*h)} m²`);}
+    } else {
+      const d=+$('#s2d').value||0;
+      if(d>0){push();add({type:'circle',c:a,r:d/2,name:`ø ${nf(d)} m`});
+        msg(`Cirkel geplaatst: ø ${nf(d)} m = ${nf(Math.PI*d*d/4)} m²`);}
+    }
+  }
+  sizeAt=null;setTool('select');draw();
+}
+$('#s2ok').onclick=()=>closeSize(true);
+$('#s2no').onclick=()=>closeSize(false);
+['#s2w','#s2h','#s2d','#s2a'].forEach(id=>$(id).addEventListener('keydown',e=>{
+  if(e.key==='Enter')closeSize(true); if(e.key==='Escape')closeSize(false);}));
+
+/* ---------- lengte/hoek intypen tijdens tekenen ---------- */
+function numinShow(){
+  const box=$('#numin'), on = S.draft && S.draft.pts.length>=1 &&
+    ['poly','line','path'].includes(S.tool);
+  box.classList.toggle('on',!!on);
+  if(!on) return;
+  const n=S.draft.pts.length;
+  let L=0;for(let i=0;i<n-1;i++)L+=Math.hypot(S.draft.pts[i+1][0]-S.draft.pts[i][0],
+                                              S.draft.pts[i+1][1]-S.draft.pts[i][1]);
+  $('#niInfo').textContent=`${n} ${n===1?'punt':'punten'}${L>0?' · '+nf(L,1)+' m':''}`;
+}
+function numinCommit(){
+  if(!S.draft||!S.draft.pts.length) return;
+  const L=parseFloat($('#niL').value), A=parseFloat($('#niA').value)||0;
+  if(!(L>0)){msg('Vul een lengte in');return;}
+  const p=S.draft.pts[S.draft.pts.length-1], t=A*Math.PI/180;
+  S.draft.pts.push([p[0]+Math.cos(t)*L, p[1]-Math.sin(t)*L]);
+  $('#niL').value='';draw();numinShow();$('#niL').focus();
+}
+['#niL','#niA'].forEach(id=>$(id).addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();
+    // leeg lengteveld → de lijn afsluiten in plaats van een punt toevoegen
+    if(!$('#niL').value.trim()) endDraft(); else numinCommit();}
+  if(e.key==='Escape'){e.preventDefault();cancelDraft();}
+}));
+function blurNum(){['#niL','#niA'].forEach(i=>$(i).blur());$('#niL').value='';}
+function endDraft(){blurNum();finishDraft();}
+function cancelDraft(){blurNum();S.draft=null;setTool(S.tool);draw();msg('Geannuleerd');}
+$('#niDone').onclick=endDraft;
+$('#niCancel').onclick=cancelDraft;
+// rechtermuisknop sluit de lijn af — zoals in tekenprogramma's
+svg.addEventListener('contextmenu',e=>e.preventDefault());
+
+/* ---------- schaal ijken ---------- */
+let calibDist=0;
+function openCalib(d){
+  if(!S.bg&&!S.shapes.length){
+    S.calib=null;setTool('select');
+    msg('Laad eerst een achtergrond (of teken iets) — er valt nog niets te schalen');return;}
+  calibDist=d;
+  $('#mDist').textContent=nf(d)+' m';
+  $('#mWhat').value = S.shapes.length? 'all' : 'bg';
+  $('#mWhat').parentElement.style.display = S.shapes.length? '' : 'none';
+  $('#modal').classList.add('on');
+  setTimeout(()=>{const i=$('#mReal');i.focus();i.select();},30);
+}
+function closeCalib(apply){
+  $('#modal').classList.remove('on');
+  if(apply){
+    const real=parseFloat($('#mReal').value);
+    if(real>0&&calibDist>0){
+      const f=real/calibDist, A=S.calib[0], what=$('#mWhat').value;
+      const sc=(x,y)=>[A[0]+(x-A[0])*f, A[1]+(y-A[1])*f];
+      if(S.bg){const q=sc(S.bg.x,S.bg.y);S.bg.x=q[0];S.bg.y=q[1];S.bg.scale*=f;}
+      if(what==='all') S.shapes.forEach(s=>{
+        if(s.pts) s.pts=s.pts.map(p=>sc(p[0],p[1]));
+        if(s.c){s.c=sc(s.c[0],s.c[1]); s.r*=f;}
+        if(s.off) s.off*=f;});
+      S.view.k/=f;                    // beeld blijft ongeveer even groot op het scherm
+      fit();
+      msg(`Schaal geijkt op ${nf(real)} m${S.bg?'':' (geen achtergrond geladen)'}`);
+    } else msg('Vul een geldige afstand in');
+  }
+  S.calib=null;setTool('select');draw();
+}
+function fit(){
+  const pts=[];
+  S.shapes.forEach(s=>{ if(s.c){pts.push([s.c[0]-s.r,s.c[1]-s.r],[s.c[0]+s.r,s.c[1]+s.r]);}
+                        else (s.pts||[]).forEach(p=>pts.push(p));});
+  if(S.bg) pts.push([S.bg.x,S.bg.y],[S.bg.x+S.bg.w*S.bg.scale,S.bg.y+S.bg.h*S.bg.scale]);
+  if(!pts.length) return;
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+  const w=Math.max(...xs)-Math.min(...xs)||1, h=Math.max(...ys)-Math.min(...ys)||1;
+  const W=svg.clientWidth||900,H=svg.clientHeight||700;
+  S.view.k=Math.max(3,Math.min(400,Math.min(W/w,H/h)*0.86));
+  S.view.x=W/2-((Math.min(...xs)+Math.max(...xs))/2)*S.view.k;
+  S.view.y=H/2-((Math.min(...ys)+Math.max(...ys))/2)*S.view.k;
+}
+$('#mOk').onclick=()=>closeCalib(true);
+$('#mCancel').onclick=()=>closeCalib(false);
+$('#mReal').addEventListener('keydown',e=>{if(e.key==='Enter')closeCalib(true);
+  if(e.key==='Escape')closeCalib(false);});
+
+function hitHandle(p){
+  const s=S.shapes.find(x=>x.id===S.sel); if(!s)return null;
+  const pts = s.type==='circle'?[s.c,[s.c[0]+s.r,s.c[1]]]:s.pts;
+  for(let i=0;i<pts.length;i++) if(Math.hypot(p[0]-pts[i][0],p[1]-pts[i][1])<7/S.view.k) return {s,i};
+  return null;
+}
+svg.addEventListener('pointermove',e=>{
+  const raw=evPt(e), p=snapPt(raw);
+  $('#stPos').textContent=`x ${nf(raw[0])} · y ${nf(raw[1])} m`;
+  if(S.tool==='calib'&&S.calib&&S.calib.length===1){
+    S.calibHover=raw;
+    msg('Huidige lengte: '+nf(Math.hypot(raw[0]-S.calib[0][0],raw[1]-S.calib[0][1]))+' m — klik het tweede punt');
+    draw();return;}
+  if(!drag){
+    if(S.draft&&S.draft.pts.length){
+      const q=S.draft.pts[S.draft.pts.length-1];
+      $('#niL').placeholder=nf(Math.hypot(raw[0]-q[0],raw[1]-q[1]));
+      $('#niA').placeholder=Math.round(Math.atan2(q[1]-raw[1],raw[0]-q[0])*180/Math.PI);
+      draw();}
+    return;}
+  if(drag.mode==='pan'){S.view.x=drag.ox+(e.clientX-drag.sx);S.view.y=drag.oy+(e.clientY-drag.sy);draw();return;}
+  if(drag.mode==='move'){const dx=p[0]-drag.last[0],dy=p[1]-drag.last[1];
+    if(drag.s.pts)drag.s.pts=drag.s.pts.map(q=>[q[0]+dx,q[1]+dy]);
+    if(drag.s.c)drag.s.c=[drag.s.c[0]+dx,drag.s.c[1]+dy];
+    drag.last=p;draw();return;}
+  if(drag.mode==='rotate'){
+    const a=Math.atan2(raw[1]-drag.anchor[1],raw[0]-drag.anchor[0]);
+    let d=(a-drag.a0)*180/Math.PI;
+    if(e.shiftKey) d=Math.round(d/15)*15;
+    rotateShape(drag.s,d,drag.anchor);drag.a0=drag.a0+d*Math.PI/180;
+    msg('Gedraaid');draw();return;}
+  if(drag.mode==='vertex'){const s=drag.s;
+    if(s.c){ if(drag.i===0)s.c=p; else s.r=Math.max(.05,Math.hypot(p[0]-s.c[0],p[1]-s.c[1])); }
+    else s.pts[drag.i]=p;
+    draw();return;}
+  drag.b=p;drawPreview();
+});
+function drawPreview(){
+  draw();
+  if(!drag||!drag.b)return;
+  const k=S.view.k,a=drag.a,b=drag.b;let ex='';
+  if(drag.mode==='rect') ex=`<rect x="${Math.min(a[0],b[0])}" y="${Math.min(a[1],b[1])}"
+    width="${Math.abs(b[0]-a[0])}" height="${Math.abs(b[1]-a[1])}" fill="none" stroke="#2f7de1"
+    stroke-width="${1.6/k}" stroke-dasharray="${6/k} ${4/k}"/>`;
+  if(drag.mode==='circle') ex=`<circle cx="${a[0]}" cy="${a[1]}" r="${Math.hypot(b[0]-a[0],b[1]-a[1])}"
+    fill="none" stroke="#2f7de1" stroke-width="${1.6/k}" stroke-dasharray="${6/k} ${4/k}"/>`;
+  if(drag.mode==='dim') ex=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"
+    stroke="#2f7de1" stroke-width="${1.6/k}"/>`;
+  const fs=+$('#fs').value||0.3;
+  const txt = drag.mode==='rect'? `${nf(Math.abs(b[0]-a[0]))} × ${nf(Math.abs(b[1]-a[1]))} m  =  ${nf(Math.abs((b[0]-a[0])*(b[1]-a[1])))} m²`
+            : drag.mode==='circle'? `ø ${nf(2*Math.hypot(b[0]-a[0],b[1]-a[1]))} m`
+            : `${nf(Math.hypot(b[0]-a[0],b[1]-a[1]))} m`;
+  ex+=`<text x="${b[0]+.25}" y="${b[1]-.25}" font-size="${fs}" font-family="sans-serif"
+    font-weight="700" fill="#2f7de1" stroke="#fff" stroke-width="${fs*.2}" paint-order="stroke">${txt}</text>`;
+  svg.querySelector('g').insertAdjacentHTML('beforeend',ex);
+}
+svg.addEventListener('pointerup',e=>{
+  if(!drag)return;
+  const p=drag.b;
+  // klik zonder slepen → maten intypen
+  if(['rect','circle'].includes(drag.mode)&&
+     (!p||Math.hypot(p[0]-drag.a[0],p[1]-drag.a[1])<0.06)){
+    const a=drag.a,m=drag.mode;drag=null;openSize(m,a);draw();return;}
+  if(['rect','circle','dim'].includes(drag.mode)&&p){
+    const a=drag.a;push();
+    if(drag.mode==='rect'&&Math.abs(p[0]-a[0])>.05&&Math.abs(p[1]-a[1])>.05)
+      add({type:'poly',pts:[[a[0],a[1]],[p[0],a[1]],[p[0],p[1]],[a[0],p[1]]],closed:true});
+    if(drag.mode==='circle'&&Math.hypot(p[0]-a[0],p[1]-a[1])>.05)
+      add({type:'circle',c:a,r:Math.hypot(p[0]-a[0],p[1]-a[1])});
+    if(drag.mode==='dim'&&Math.hypot(p[0]-a[0],p[1]-a[1])>.05)
+      add({type:'dim',pts:[a,p],off:0,fill:'geen',name:'maat'});
+  }
+  drag=null;draw();
+});
+svg.addEventListener('dblclick',()=>{if(S.draft)endDraft();});
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=svg.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+  const w=toWorld(mx,my);
+  S.view.k=Math.max(4,Math.min(400,S.view.k*(e.deltaY<0?1.12:1/1.12)));
+  S.view.x=mx-w[0]*S.view.k;S.view.y=my-w[1]*S.view.k;draw();
+},{passive:false});
+
+function add(o){
+  const n={id:S.nextId++,name:o.name||autoName(o),fill:o.type==='dim'?'geen':S.fill,
+    sw:o.type==='dim'?1.2:1.2,closed:!!o.closed,smooth:false,plantafstand:0,...o};
+  S.shapes.push(n);S.sel=n.id;return n;
+}
+function autoName(o){
+  const L=PATTERNS[S.fill]?PATTERNS[S.fill].label:S.fill;
+  return L+' '+(S.shapes.filter(s=>s.fill===S.fill).length+1);
+}
+function finishDraft(){
+  if(!S.draft)return;
+  const wasPath=S.tool==='path';
+  // dubbelklik zet twee punten op dezelfde plek — die haal je er weer uit
+  S.draft.pts=S.draft.pts.filter((p,i,a)=>i===0||Math.hypot(p[0]-a[i-1][0],p[1]-a[i-1][1])>1e-4);
+  if(S.draft.pts.length>=2){push();
+    add({type:'poly',pts:S.draft.pts,closed:S.draft.closed&&S.draft.pts.length>2,
+      smooth:!!S.draft.smooth, band: wasPath?(+$('#pathW').value||1):0,
+      name: wasPath?('Pad '+nf(+$('#pathW').value||1,2)+' m breed'):undefined});}
+  S.draft=null;setTool('select');draw();
+}
+
+/* ---------- toolbar ---------- */
+function setTool(t){
+  S.tool=t;S.draft=null;
+  if(t!=='calib'||!$('#modal').classList.contains('on')){S.calib=null;S.calibHover=null;}
+  if(t==='calib') msg('Klik het eerste punt van een bekende afstand');
+  $$('.tool').forEach(b=>b.classList.toggle('on',b.dataset.tool===t));
+  $('#stTool').textContent=$$('.tool').find(b=>b.dataset.tool===t)?.textContent.replace(/[A-Z]$/,'')||t;
+  svg.style.cursor = t==='select'?'default':'crosshair';
+  draw();
+}
+$$('.tool').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+addEventListener('keydown',e=>{
+  if(/input|textarea|select/i.test(e.target.tagName))return;
+  if($('#modal').classList.contains('on')){if(e.key==='Escape')closeCalib(false);return;}
+  if($('#modal2').classList.contains('on')){if(e.key==='Escape')closeSize(false);return;}
+  // cijfer tijdens tekenen → meteen in het lengteveld
+  if(S.draft&&S.draft.pts.length&&/^[0-9.,]$/.test(e.key)){
+    const i=$('#niL');i.value=(e.key===','?'.':e.key);i.focus();e.preventDefault();return;}
+  if(e.key.toLowerCase()==='f'){fit();draw();return;}
+  const m={v:'select',p:'poly',l:'line',r:'rect',c:'circle',m:'dim',k:'calib',b:'tree',w:'path'}[e.key.toLowerCase()];
+  if(m){setTool(m);return;}
+  if((e.key==='['||e.key===']')&&S.sel){const s=S.shapes.find(x=>x.id===S.sel);
+    if(s&&!s.c){push();rotateShape(s,e.key==='['?-5:5);draw();}return;}
+  if(e.key==='Enter'&&S.draft){e.preventDefault();endDraft();return;}
+  if(e.key==='Escape'){if(S.draft){cancelDraft();return;} S.calib=null;draw();}
+  if((e.key==='Delete'||e.key==='Backspace')&&S.sel){push();S.shapes=S.shapes.filter(x=>x.id!==S.sel);S.sel=null;draw();}
+  if(e.key.toLowerCase()==='z'&&(e.metaKey||e.ctrlKey)){e.preventDefault();undo();}
+});
+$('#layers').addEventListener('click',e=>{const l=e.target.closest('.lay');
+  if(l&&l.dataset.id){S.sel=+l.dataset.id;draw();}});
+['grid','snap','lbl','fs'].forEach(id=>$('#'+id).addEventListener('input',draw));
+$('#fitBtn').onclick=()=>{fit();draw()};
+$('#bgOn').onchange=e=>{if(S.bg)S.bg.on=e.target.checked;draw()};
+$('#bgOp').oninput=e=>{if(S.bg)S.bg.op=e.target.value/100;draw()};
+$('#bgRot').oninput=e=>{if(S.bg)S.bg.rot=+e.target.value;$('#bgRotV').textContent=e.target.value+'°';draw()};
+
+/* ---------- afbeeldingen ---------- */
+function pickFile(accept,cb){const i=document.createElement('input');i.type='file';i.accept=accept;
+  i.onchange=()=>{const f=i.files[0];if(!f)return;const r=new FileReader();r.onload=()=>cb(r.result,f.name);r.readAsDataURL(f);};i.click();}
+function setBg(href){
+  const im=new Image();
+  im.onload=()=>{
+    const wpx=im.width,hpx=im.height;
+    S.bg={href,w:wpx,h:hpx,scale:10/wpx,x:0,y:0,op:+$('#bgOp').value/100,on:true};
+    // pas in beeld
+    const W=svg.clientWidth,H=svg.clientHeight;
+    S.view.k=Math.min(W/12,H/(12*hpx/wpx))*0.85;S.view.x=W*.08;S.view.y=H*.06;
+    msg('Achtergrond geladen — ijk nu de schaal met K');draw();};
+  im.src=href;
+}
+$('#loadBg').onclick=()=>pickFile('image/*',setBg);
+$('#imgPat').onclick=()=>pickFile('image/*',href=>{
+  const im=new Image();
+  im.onload=()=>{const id='u'+Date.now();
+    userPats[id]={href,w:+$('#patW').value||0.6,ar:im.height/im.width};
+    S.fill=id;buildFills();
+    const s=S.shapes.find(x=>x.id===S.sel);if(s){push();s.fill=id;}
+    draw();};
+  im.src=href;});
+$('#patW').oninput=()=>{Object.values(userPats).forEach(u=>u.w=+$('#patW').value||0.6);draw()};
+const stage=$('#stage');
+['dragenter','dragover'].forEach(t=>stage.addEventListener(t,e=>{e.preventDefault();$('#drop').classList.add('on')}));
+['dragleave','drop'].forEach(t=>stage.addEventListener(t,e=>{e.preventDefault();$('#drop').classList.remove('on')}));
+stage.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>setBg(r.result);r.readAsDataURL(f);});
+
+/* ---------- export ---------- */
+function buildSvg(denom){
+  const u=1000/denom;                       // meters → mm bij schaal 1:denom
+  const all=[];S.shapes.forEach(s=>{
+    if(s.c){all.push([s.c[0]-s.r,s.c[1]-s.r],[s.c[0]+s.r,s.c[1]+s.r]);}
+    else (s.pts||[]).forEach(p=>all.push(p));});
+  if(!all.length)all.push([0,0],[10,10]);
+  const xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);
+  const mrg=1.0;                            // meter marge
+  const x0=Math.min(...xs)-mrg,y0=Math.min(...ys)-mrg;
+  const wM=Math.max(...xs)-x0+mrg, hM=Math.max(...ys)-y0+mrg;
+  const fs=+$('#fs').value||0.3, showL=$('#lbl').checked;
+  let g='';
+  const uw=0.00035*denom;                    // lijndikte-eenheid in wereldmeters
+  const selBak=S.sel; S.sel=null;
+  for(const s of S.shapes){
+    if(s.type==='dim'){g+=dimSvg(s,uw,fs,showL);continue;}
+    if(s.type==='tree'){
+      g+=treeSvg(s,uw);
+      if(showL) g+=`<text x="${s.c[0]}" y="${s.c[1]+s.r+fs}" text-anchor="middle" font-size="${fs*.85}"
+        font-family="Helvetica,sans-serif" fill="#3f4441">${esc(s.name)} ø${nf(s.r*2,1)}</text>`;
+      continue;}
+    g+=`<path d="${pathD(s)}" fill="${isArea(s)?fillOf(s):'none'}"
+      stroke="${s.stroke||'#3a3f3c'}" stroke-width="${(s.sw||1.2)*uw}"
+      stroke-linejoin="round" ${s.dash?`stroke-dasharray="${.12} ${.08}"`:''}/>`;
+    if(showL&&isArea(s)){
+      const c=centroid(s);
+      g+=`<text x="${c[0]}" y="${c[1]}" text-anchor="middle" font-size="${fs}" font-family="Helvetica,sans-serif"
+        font-weight="600" fill="#1f2421">${esc(s.name)}</text>
+        <text x="${c[0]}" y="${c[1]+fs*1.15}" text-anchor="middle" font-size="${fs*.82}"
+        font-family="Helvetica,sans-serif" fill="#3f4441">${nf(area(s))} m²${
+          isBand(s)?` · ${nf(midLen(s),1)} × ${nf(s.band,2)} m`:''}</text>`;}
+  }
+  S.sel=selBak;
+  // schaalbalk + titel
+  const by=Math.max(...ys)+mrg*.55;
+  g+=`<g><line x1="${x0+.4}" y1="${by}" x2="${x0+1.4}" y2="${by}" stroke="#1f2421" stroke-width="${.02}"/>
+   <line x1="${x0+.4}" y1="${by-.08}" x2="${x0+.4}" y2="${by+.08}" stroke="#1f2421" stroke-width="${.02}"/>
+   <line x1="${x0+1.4}" y1="${by-.08}" x2="${x0+1.4}" y2="${by+.08}" stroke="#1f2421" stroke-width="${.02}"/>
+   <text x="${x0+1.55}" y="${by+.09}" font-size="${.24}" font-family="Helvetica,sans-serif" fill="#3f4441">1 m — schaal 1:${denom}</text></g>`;
+  return `<svg xmlns="${NS}" xmlns:xlink="http://www.w3.org/1999/xlink" width="${(wM*u).toFixed(2)}mm"
+   height="${(hM*u).toFixed(2)}mm" viewBox="0 0 ${(wM*u).toFixed(3)} ${(hM*u).toFixed(3)}">
+   ${defs(1)}<g transform="scale(${u}) translate(${-x0},${-y0})">${g}</g></svg>`;
+}
+function dl(name,blob){const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);}
+$('#expSvg').onclick=()=>{const d=+$('#expScale').value;
+  dl(`tuinplan_1-${d}.svg`,new Blob([buildSvg(d)],{type:'image/svg+xml'}));msg('SVG geëxporteerd op 1:'+d);};
+$('#expPng').onclick=()=>{
+  const src=buildSvg(+$('#expScale').value);
+  const img=new Image();
+  img.onload=()=>{const c=document.createElement('canvas');
+    c.width=img.width*3||2400;c.height=img.height*3||1800;
+    const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+    x.drawImage(img,0,0,c.width,c.height);
+    c.toBlob(b=>dl('tuinplan.png',b));};
+  img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(src)));};
+$('#save').onclick=()=>dl('tuinplan.json',new Blob([JSON.stringify({shapes:S.shapes,bg:S.bg,view:S.view,userPats},null,1)],{type:'application/json'}));
+$('#open').onclick=()=>pickFile('.json,application/json',href=>{
+  try{const o=JSON.parse(atob(href.split(',')[1]));
+    S.shapes=o.shapes||[];S.bg=o.bg||null;S.view=o.view||S.view;userPats=o.userPats||{};
+    S.nextId=Math.max(0,...S.shapes.map(s=>s.id))+1;S.sel=null;buildFills();draw();msg('Project geladen');}
+  catch(err){msg('Kon bestand niet lezen');}});
+$('#clear').onclick=()=>{if(confirm('Alle vormen wissen?')){push();S.shapes=[];S.sel=null;draw();}};
+
+let msgT;function msg(t){$('#stMsg').textContent=t;clearTimeout(msgT);msgT=setTimeout(()=>$('#stMsg').textContent='',4000);}
+addEventListener('resize',draw);
+
+/* ---------- startvoorbeeld ---------- */
+function demo(){
+  S.fill='keien';
+  add({type:'poly',pts:[[0,0],[3.6,0],[3.6,4],[0,4]],closed:true,name:'A · garage-oprit 3,60 × 4,00'});
+  add({type:'poly',pts:[[-1.2,4],[4.8,4],[4.8,8],[-1.2,8]],closed:true,name:'B · plateau 6,00 × 4,00'});
+  S.fill='grind';
+  add({type:'poly',pts:[[5.4,0],[6.65,0],[6.65,12],[5.4,12]],closed:true,name:'C · pad naar de woning'});
+  S.fill='heesters';
+  add({type:'poly',pts:[[-2.6,8.6],[1.4,8.4],[3.2,10.4],[1.0,12.6],[-2.2,11.4]],closed:true,smooth:true,
+       name:'Mugo pinus-vak',plantafstand:0.9});
+  S.fill='schelpen';
+  add({type:'poly',pts:[[4.6,8.4],[2.4,10.2],[3.6,12.4],[1.6,14.2],[2.8,16.4]],closed:false,smooth:true,
+       band:1.0,name:'Schelpenpad 1,00 m breed'});
+  add({type:'tree',c:[6.4,3.2],r:2.4,kind:'conifeer',name:'Bestaande conifeer',fill:'geen'});
+  add({type:'tree',c:[-4.4,13.6],r:1.8,kind:'loof',name:'Bestaande boom',fill:'geen'});
+  S.fill='beton';
+  add({type:'poly',pts:[[-2.9,0],[-2.9,17]],closed:false,name:'erfgrens 17 m · keerwand + hedera',sw:3});
+  add({type:'dim',pts:[[-2.9,0],[-2.9,17]],off:-0.8,fill:'geen',name:'maat erfgrens'});
+  S.fill='keien';S.sel=null;
+}
+demo();buildFills();
+requestAnimationFrame(()=>{S.view.k=34;S.view.x=svg.clientWidth*.45;S.view.y=40;draw();});
+</script>
+</body>
+</html>
